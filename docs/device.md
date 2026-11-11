@@ -1,6 +1,6 @@
 # BMM350 device facts (MARV V2 Rev 1)
 
-Copied from the MARV V2 firmware repository's `docs/devices.md` and `docs/pinout.md`. Page numbers are PDF pages of the datasheet listed at the end. Items marked UNKNOWN or "unverified" have not been checked against the datasheet or on hardware. "Measured" means measured on this board.
+The device and board facts this driver was written against. Page numbers are PDF pages of the datasheet listed at the end. Items marked UNKNOWN have not been checked against the datasheet or on hardware. "Measured" means measured on this board.
 
 ## BMM350 (Bosch Sensortec, magnetometer on I2C0, on the bench)
 
@@ -26,7 +26,10 @@ Pins: see "Pins and bus" below (SDA GPIO12, SCL GPIO13, INT on GPIO4). Sources: 
 - Conversion to uT (vendor `read_out_raw_data`, `update_default_coefiecents`): X, Y: raw * 0.007069979 uT/LSB; Z: raw * 0.007174964 uT/LSB; these are (1e6 / 2^20) / (gain products 14.55 * 19.46 for X/Y, 9.0 * 31.0 for Z, * (1/1.5) * 0.714607238769531). Temperature uses 1 / (0.00204 * (1/1.5) * 0.714607238769531 * 2^20) = 0.000981282.
 - Compensation (vendor `bmm350_get_compensated_mag_xyz_temp_data`): T = (1 + t_sens) * (degC raw - 25.49) + t_offs. Per axis, B = raw_uT * (1 + sens) + offset + tco * (T - T0), then B = B / (1 + tcs * (T - T0)). Then with d = 1 - cross_y_x * cross_x_y: X = (Bx - cross_x_y * By) / d; Y = (By - cross_y_x * Bx) / d; Z = Bz + (Bx * (cross_y_x * cross_z_y - cross_z_x) - By * (cross_z_y - cross_x_y * cross_z_x)) / d. The macros BMM350_SENS_CORR_Y (0.01) and BMM350_TCS_CORR_Z (0.0001) exist in `bmm350_defs.h` but `bmm350.c` v1.10.0 never uses them.
 - Range: +-2000 uT per axis, and the vector sum must stay below 2000 uT (p19). Noise 190 nT rms X/Y and 450 nT rms Z at 100 Hz, avg 2 (p10).
-- Not used by the driver: PAD_CTRL drive, I2C watchdog, sensortime, self-test (p17, TMR_SELFTEST_USER), I3C, out-of-range detection (`bmm350_oor.c`).
+- Not used by the driver: PAD_CTRL drive, I3C, out-of-range detection (`bmm350_oor.c`).
+- Sensor time: the driver supports it (`sensor_time`, `read_with_time`); the measured facts (tick 1/25600 s, 256 ticks per sample at 100 Hz, 64 at 400 Hz) are in the rustdoc of `src/timing.rs`.
+- Self-test (p17, TMR_SELFTEST_USER): the driver supports it (`self_test`); the facts are in the rustdoc of `src/selftest.rs`.
+- I2C watchdog (I2C_WDT_SET): the driver supports it as the `watchdog` setting of `Config` (see `src/config.rs`).
 - Measured on the bench: OTP of this unit: offsets -136 -137 -13 uT, sensitivity -0.0234 -0.0234 0.0039, T0 30.03 degC. Field about 67 uT with std 0.16 / 0.14 / 0.40 uT (x / y / z) at 100 Hz, avg 2, in the bench environment. Rate 100.68 Hz at the 100 Hz setting and 402.7 Hz at 400 Hz (+0.68 %, within the +-2 % typical). Read of 12 data bytes at 400 kHz I2C: about 440 us mean, 480 us worst. init (reset, OTP, magnetic reset, configuration) about 85 ms. Forced mode (FM, avg 2): 15.5 ms from the trigger write to the data-ready edge. Right after init PMU_CMD_STATUS_0 read 0x11 (busy and cmd_is_illegal set, power mode not yet normal) and 0x28 (normal, last command NM) two seconds later; the cause of the transient illegal flag is UNKNOWN.
 
 ## Pins and bus (from pinout.md)

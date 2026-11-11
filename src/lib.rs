@@ -7,21 +7,7 @@
 //! the INT pin nor a timer: it configures the chip's interrupt output and the application waits on
 //! the pin.
 //!
-//! ```ignore
-//! let mut mag = bmm350::Bmm350::new(i2c, bmm350::DEFAULT_ADDRESS);
-//! mag.init(&mut delay, &bmm350::Config::default()).await?;
-//! loop {
-//!     int_pin.wait_for_rising_edge().await;
-//!     let field = mag.read_field().await?; // microtesla, degrees Celsius
-//! }
-//! ```
-//!
-//! ```ignore
-//! let mut mag = bmm350::blocking::Bmm350::new(i2c, bmm350::DEFAULT_ADDRESS);
-//! mag.init(&mut delay, &bmm350::Config::default())?;
-//! let raw = mag.read()?;
-//! let field = bmm350::compensate(mag.calibration(), &raw);
-//! ```
+//! Examples: see README.md, whose examples are compiled by `cargo test`.
 //!
 //! Units: [`Field`] is in microtesla and degrees Celsius. [`RawSample`] is in sensor counts.
 //! Hard-iron and soft-iron calibration of the installed sensor is the application's job.
