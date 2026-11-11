@@ -1169,3 +1169,7 @@ impl<I2C: I2c> Bmm350<I2C> {
         Err(Error::OtpError { status })
     }
 }
+
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;
