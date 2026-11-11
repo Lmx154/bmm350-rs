@@ -46,18 +46,29 @@ impl RawSample {
     /// Decode the 12 data bytes at `MAG_X_XLSB`: X, Y, Z, temperature, each a little-endian
     /// 24-bit two's-complement value (datasheet p13, p37-40).
     pub const fn decode(b: &[u8; 12]) -> Self {
-        const fn ch(b: &[u8; 12], i: usize) -> i32 {
-            sign_extend(
-                (b[i] as u32) | ((b[i + 1] as u32) << 8) | ((b[i + 2] as u32) << 16),
-                24,
-            )
+        const fn ch(lo: u8, mid: u8, hi: u8) -> i32 {
+            sign_extend((lo as u32) | ((mid as u32) << 8) | ((hi as u32) << 16), 24)
         }
+        let [x0, x1, x2, y0, y1, y2, z0, z1, z2, t0, t1, t2] = *b;
         Self {
-            x: ch(b, 0),
-            y: ch(b, 3),
-            z: ch(b, 6),
-            temperature: ch(b, 9),
+            x: ch(x0, x1, x2),
+            y: ch(y0, y1, y2),
+            z: ch(z0, z1, z2),
+            temperature: ch(t0, t1, t2),
         }
+    }
+}
+
+impl RawSample {
+    /// Decode the 15 register bytes at `MAG_X_XLSB` to `SENSORTIME_MSB` (X, Y, Z, temperature,
+    /// then the 24-bit sensor time, little-endian, datasheet p37-40): the sample and the sensor
+    /// time in ticks, from 0 to `0x00FF_FFFF`.
+    pub const fn decode_with_time(b: &[u8; 15]) -> (Self, u32) {
+        let [x0, x1, x2, y0, y1, y2, z0, z1, z2, t0, t1, t2, s0, s1, s2] = *b;
+        (
+            Self::decode(&[x0, x1, x2, y0, y1, y2, z0, z1, z2, t0, t1, t2]),
+            (s0 as u32) | ((s1 as u32) << 8) | ((s2 as u32) << 16),
+        )
     }
 }
 
@@ -124,8 +135,9 @@ impl Calibration {
     /// - 0x16: low byte cross Z-X; high byte cross Z-Y
     /// - 0x18: signed 16-bit reference temperature
     pub fn from_otp(w: &[u16; OTP_WORDS]) -> Self {
-        let lo = |i: usize| w[i] as u8 as i8 as f32;
-        let hi = |i: usize| (w[i] >> 8) as u8 as i8 as f32;
+        let word = |i: usize| w.get(i).copied().unwrap_or(0);
+        let lo = |i: usize| word(i) as u8 as i8 as f32;
+        let hi = |i: usize| (word(i) >> 8) as u8 as i8 as f32;
         let s12 = |v: u16| sign_extend(v as u32, 12) as f32;
         let off_x = w[0x0E] & 0x0FFF;
         let off_y = ((w[0x0E] & 0xF000) >> 4) | (w[0x0F] & 0x00FF);
@@ -157,18 +169,33 @@ pub fn compensate(cal: &Calibration, raw: &RawSample) -> Field {
         * (1.0 + cal.temp_sensitivity)
         + cal.temp_offset;
     let dt = temp - cal.t0;
-    let counts = [
-        raw.x as f32 * XY_UT_PER_LSB,
-        raw.y as f32 * XY_UT_PER_LSB,
-        raw.z as f32 * Z_UT_PER_LSB,
+    let axis = |counts: f32, sensitivity: f32, offset: f32, tco: f32, tcs: f32| {
+        let v = counts * (1.0 + sensitivity) + offset + tco * dt;
+        v / (1.0 + tcs * dt)
+    };
+    let b = [
+        axis(
+            raw.x as f32 * XY_UT_PER_LSB,
+            cal.sensitivity[0],
+            cal.offset[0],
+            cal.tco[0],
+            cal.tcs[0],
+        ),
+        axis(
+            raw.y as f32 * XY_UT_PER_LSB,
+            cal.sensitivity[1],
+            cal.offset[1],
+            cal.tco[1],
+            cal.tcs[1],
+        ),
+        axis(
+            raw.z as f32 * Z_UT_PER_LSB,
+            cal.sensitivity[2],
+            cal.offset[2],
+            cal.tco[2],
+            cal.tcs[2],
+        ),
     ];
-    let mut b = [0.0f32; 3];
-    let mut i = 0;
-    while i < 3 {
-        let v = counts[i] * (1.0 + cal.sensitivity[i]) + cal.offset[i] + cal.tco[i] * dt;
-        b[i] = v / (1.0 + cal.tcs[i] * dt);
-        i += 1;
-    }
     let d = 1.0 - cal.cross_y_x * cal.cross_x_y;
     Field {
         x: (b[0] - cal.cross_x_y * b[1]) / d,

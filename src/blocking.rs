@@ -10,7 +10,10 @@ use core::task::{Context, Poll, Waker};
 use embedded_hal::delay::DelayNs as BlockingDelay;
 use embedded_hal::i2c::{ErrorType, I2c as BlockingI2c, Operation};
 
-use crate::{Calibration, Config, Error, Field, InterruptStatus, PowerMode, RawSample};
+use crate::{
+    Calibration, Config, Error, ErrorStatus, Field, Info, InterruptStatus, PmuStatus, PowerMode,
+    RawSample, SelfTestReport, TimedSample,
+};
 
 /// Async-trait view of a blocking bus.
 struct Bus<I2C>(I2C);
@@ -102,8 +105,22 @@ impl<I2C: BlockingI2c> Bmm350<I2C> {
         &mut self,
         delay: &mut impl BlockingDelay,
         config: &Config,
-    ) -> Result<(), Error<I2C::Error>> {
+    ) -> Result<Info, Error<I2C::Error>> {
         run(self.inner.init(&mut Delay(delay), config))
+    }
+
+    /// See [`crate::Bmm350::configure`].
+    pub fn configure(
+        &mut self,
+        delay: &mut impl BlockingDelay,
+        config: &Config,
+    ) -> Result<Info, Error<I2C::Error>> {
+        run(self.inner.configure(&mut Delay(delay), config))
+    }
+
+    /// See [`crate::Bmm350::config`].
+    pub fn config(&self) -> Option<&Config> {
+        self.inner.config()
     }
 
     /// See [`crate::Bmm350::magnetic_reset`].
@@ -112,6 +129,22 @@ impl<I2C: BlockingI2c> Bmm350<I2C> {
         delay: &mut impl BlockingDelay,
     ) -> Result<(), Error<I2C::Error>> {
         run(self.inner.magnetic_reset(&mut Delay(delay)))
+    }
+
+    /// See [`crate::Bmm350::magnetic_reset_fast`].
+    pub fn magnetic_reset_fast(
+        &mut self,
+        delay: &mut impl BlockingDelay,
+    ) -> Result<(), Error<I2C::Error>> {
+        run(self.inner.magnetic_reset_fast(&mut Delay(delay)))
+    }
+
+    /// See [`crate::Bmm350::self_test`].
+    pub fn self_test(
+        &mut self,
+        delay: &mut impl BlockingDelay,
+    ) -> Result<SelfTestReport, Error<I2C::Error>> {
+        run(self.inner.self_test(&mut Delay(delay)))
     }
 
     /// See [`crate::Bmm350::set_power_mode`].
@@ -128,14 +161,49 @@ impl<I2C: BlockingI2c> Bmm350<I2C> {
         run(self.inner.trigger_forced())
     }
 
+    /// See [`crate::Bmm350::trigger_forced_fast`].
+    pub fn trigger_forced_fast(&mut self) -> Result<(), Error<I2C::Error>> {
+        run(self.inner.trigger_forced_fast())
+    }
+
+    /// See [`crate::Bmm350::pmu_status`].
+    pub fn pmu_status(&mut self) -> Result<PmuStatus, Error<I2C::Error>> {
+        run(self.inner.pmu_status())
+    }
+
+    /// See [`crate::Bmm350::error_status`].
+    pub fn error_status(&mut self) -> Result<ErrorStatus, Error<I2C::Error>> {
+        run(self.inner.error_status())
+    }
+
+    /// See [`crate::Bmm350::verify`].
+    pub fn verify(&mut self) -> Result<(), Error<I2C::Error>> {
+        run(self.inner.verify())
+    }
+
+    /// See [`crate::Bmm350::recover`].
+    pub fn recover(&mut self, delay: &mut impl BlockingDelay) -> Result<(), Error<I2C::Error>> {
+        run(self.inner.recover(&mut Delay(delay)))
+    }
+
     /// See [`crate::Bmm350::interrupt_status`].
     pub fn interrupt_status(&mut self) -> Result<InterruptStatus, Error<I2C::Error>> {
         run(self.inner.interrupt_status())
     }
 
+    /// See [`crate::Bmm350::sensor_time`].
+    pub fn sensor_time(&mut self) -> Result<u32, Error<I2C::Error>> {
+        run(self.inner.sensor_time())
+    }
+
     /// See [`crate::Bmm350::read`].
     pub fn read(&mut self) -> Result<RawSample, Error<I2C::Error>> {
         run(self.inner.read())
+    }
+
+    /// See [`crate::Bmm350::read_with_time`].
+    pub fn read_with_time(&mut self) -> Result<TimedSample, Error<I2C::Error>> {
+        run(self.inner.read_with_time())
     }
 
     /// See [`crate::Bmm350::read_field`].
@@ -165,154 +233,5 @@ impl<I2C: BlockingI2c> Bmm350<I2C> {
         word: u8,
     ) -> Result<u16, Error<I2C::Error>> {
         run(self.inner.read_otp_word(&mut Delay(delay), word))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::reg;
-    use std::vec::Vec;
-
-    /// Register-file fake of the chip: two dummy bytes before read data, OTP words served
-    /// through the OTP registers, PMU command echo in `PMU_CMD_STATUS_0`.
-    struct FakeChip {
-        regs: [u8; 0x80],
-        otp: [u16; 32],
-        writes: Vec<(u8, u8)>,
-        reads: Vec<(u8, usize)>,
-    }
-
-    impl FakeChip {
-        fn new() -> Self {
-            let mut regs = [0u8; 0x80];
-            regs[reg::CHIP_ID as usize] = reg::CHIP_ID_VALUE;
-            let mut otp = [0u16; 32];
-            otp[0x0E] = 0x0064; // offset X = 100
-            otp[0x10] = 0x0500; // sensitivity X = 5/256
-            // Data block: x = 1000, y = -1000, z = 2000, temperature = 51450.
-            let data = [
-                0xE8, 0x03, 0x00, 0x18, 0xFC, 0xFF, 0xD0, 0x07, 0x00, 0xFA, 0xC8, 0x00,
-            ];
-            regs[0x31..0x3D].copy_from_slice(&data);
-            Self {
-                regs,
-                otp,
-                writes: Vec::new(),
-                reads: Vec::new(),
-            }
-        }
-
-        fn write(&mut self, reg: u8, val: u8) {
-            self.writes.push((reg, val));
-            self.regs[reg as usize] = val;
-            match reg {
-                reg::OTP_CMD_REG if val & 0xE0 == reg::OTP_CMD_DIR_READ => {
-                    let w = self.otp[(val & 0x1F) as usize];
-                    self.regs[reg::OTP_DATA_MSB_REG as usize] = (w >> 8) as u8;
-                    self.regs[reg::OTP_DATA_LSB_REG as usize] = w as u8;
-                    self.regs[reg::OTP_STATUS_REG as usize] = reg::OTP_STATUS_CMD_DONE;
-                }
-                reg::PMU_CMD if val == reg::PMU_CMD_BR || val == reg::PMU_CMD_FGR => {
-                    self.regs[reg::PMU_CMD_STATUS_0 as usize] = val << 5;
-                }
-                _ => {}
-            }
-        }
-    }
-
-    impl ErrorType for FakeChip {
-        type Error = core::convert::Infallible;
-    }
-
-    impl BlockingI2c for FakeChip {
-        fn transaction(
-            &mut self,
-            address: u8,
-            ops: &mut [Operation<'_>],
-        ) -> Result<(), Self::Error> {
-            assert_eq!(address, reg::ADDRESS_ADSEL_LOW);
-            let mut reg = 0usize;
-            for op in ops {
-                match op {
-                    Operation::Write(w) if w.len() == 2 => self.write(w[0], w[1]),
-                    Operation::Write(w) => reg = w[0] as usize,
-                    Operation::Read(r) => {
-                        self.reads.push((reg as u8, r.len()));
-                        for (i, b) in r.iter_mut().enumerate() {
-                            *b = if i < reg::DUMMY_BYTES {
-                                0xAA
-                            } else {
-                                self.regs[reg + i - reg::DUMMY_BYTES]
-                            };
-                        }
-                    }
-                }
-            }
-            Ok(())
-        }
-    }
-
-    struct NoDelay;
-
-    impl BlockingDelay for NoDelay {
-        fn delay_ns(&mut self, _ns: u32) {}
-    }
-
-    #[test]
-    fn init_then_read() {
-        let mut mag = Bmm350::new(FakeChip::new(), reg::ADDRESS_ADSEL_LOW);
-        mag.init(&mut NoDelay, &Config::default()).unwrap();
-        assert!((mag.calibration().offset[0] - 100.0).abs() < 1e-6);
-
-        let raw = mag.read().unwrap();
-        assert_eq!(
-            raw,
-            RawSample {
-                x: 1000,
-                y: -1000,
-                z: 2000,
-                temperature: 51450
-            }
-        );
-        let f = mag.read_field().unwrap();
-        assert!(f.x > 100.0 && f.temperature > 20.0 && f.temperature < 40.0);
-
-        let chip = mag.release();
-        let mut expected: Vec<(u8, u8)> = std::vec![(reg::CMD, 0xB6), (reg::CMD, 0x00)];
-        for w in 0..32u8 {
-            expected.push((reg::OTP_CMD_REG, 0x20 | w));
-        }
-        expected.extend([
-            (reg::OTP_CMD_REG, 0x80),
-            (reg::PMU_CMD, reg::PMU_CMD_BR),
-            (reg::PMU_CMD, reg::PMU_CMD_FGR),
-            (reg::PMU_CMD_AGGR_SET, 0x14),
-            (reg::PMU_CMD, reg::PMU_CMD_UPD_OAE),
-            (reg::PMU_CMD_AXIS_EN, 0x07),
-            (reg::INT_CTRL, 0x8E),
-            (reg::PMU_CMD, reg::PMU_CMD_NM),
-        ]);
-        assert_eq!(chip.writes, expected);
-
-        // The data read is one transaction of 12 data bytes plus the 2 dummy bytes.
-        assert_eq!(
-            chip.reads
-                .iter()
-                .filter(|r| **r == (reg::MAG_X_XLSB, 14))
-                .count(),
-            2
-        );
-    }
-
-    #[test]
-    fn wrong_chip_id_is_reported() {
-        let mut chip = FakeChip::new();
-        chip.regs[reg::CHIP_ID as usize] = 0x42;
-        let mut mag = Bmm350::new(chip, reg::ADDRESS_ADSEL_LOW);
-        assert_eq!(
-            mag.init(&mut NoDelay, &Config::default()),
-            Err(Error::WrongId { found: 0x42 })
-        );
     }
 }

@@ -4,7 +4,7 @@
 
 use core::sync::atomic::{AtomicU32, Ordering::Relaxed};
 
-use bmm350::{Averaging, Bmm350, Config, Field, OutputDataRate, PowerMode, reg};
+use bmm350::{Averaging, Bmm350, Config, Field, OutputDataRate, StartMode, reg};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
@@ -213,11 +213,9 @@ async fn main(spawner: Spawner) {
 
     let mut mag = Bmm350::new(i2c, address);
     let mut delay = Delay;
-    let base = Config {
-        odr: OutputDataRate::Hz100,
-        averaging: Averaging::Avg2,
-        ..Config::default()
-    };
+    let base = Config::new()
+        .with_odr(OutputDataRate::Hz100)
+        .with_averaging(Averaging::Avg2);
 
     // 1. init, identity, OTP coefficients.
     let t0 = Instant::now();
@@ -256,11 +254,13 @@ async fn main(spawner: Spawner) {
 
     // 2. normal mode at 100 Hz and at the highest ODR.
     let mut mean100 = Field::default();
-    for (odr, label, nominal) in [
-        (OutputDataRate::Hz100, "100 Hz", 100.0f32),
-        (OutputDataRate::Hz400, "400 Hz", 400.0),
+    // 400 Hz allows averaging 1 only (datasheet Table 5); `init` now rejects any other pair instead
+    // of lowering the averaging silently, so the pair is stated here.
+    for (odr, avg, label, nominal) in [
+        (OutputDataRate::Hz100, Averaging::Avg2, "100 Hz", 100.0f32),
+        (OutputDataRate::Hz400, Averaging::Avg1, "400 Hz", 400.0),
     ] {
-        let cfg = Config { odr, ..base };
+        let cfg = base.with_odr(odr).with_averaging(avg);
         let ok = mag.init(&mut delay, &cfg).await.is_ok();
         check!(failures, ok, "{=str} {=str}: init", label);
         let run = stream(&mut mag, 2).await;
@@ -351,10 +351,7 @@ async fn main(spawner: Spawner) {
     let _ = mean100;
 
     // 3. forced mode once: from suspend, trigger, wait for data-ready, read.
-    let cfg = Config {
-        power_mode: PowerMode::Suspend,
-        ..base
-    };
+    let cfg = base.with_start_mode(StartMode::Suspend);
     let ok = mag.init(&mut delay, &cfg).await.is_ok();
     check!(failures, ok, "{=str} forced: init to suspend");
     let (e0, _) = edge_now();
@@ -402,12 +399,9 @@ async fn main(spawner: Spawner) {
         bus_config(),
     );
     let mut bmag = bmm350::blocking::Bmm350::new(bus, address);
-    let cfg = Config {
-        power_mode: PowerMode::Forced,
-        ..base
-    };
+    let cfg = base.with_start_mode(StartMode::Suspend);
     let (e0, _) = edge_now();
-    let ok = bmag.init(&mut delay, &cfg).is_ok();
+    let ok = bmag.init(&mut delay, &cfg).is_ok() && bmag.trigger_forced().is_ok();
     check!(failures, ok, "{=str} blocking: init");
     match wait_edge(e0).await {
         Some(_) => match bmag.read_field() {
