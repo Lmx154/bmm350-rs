@@ -90,7 +90,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "bmm350"
+name = "bmm350-async"
 version = "0.1.0"
 dependencies = [
  "defmt",
@@ -102,7 +102,7 @@ dependencies = [
 name = "bmm350-hil"
 version = "0.1.0"
 dependencies = [
- "bmm350",
+ "bmm350-async",
  "cortex-m",
  "cortex-m-rt",
  "critical-section",

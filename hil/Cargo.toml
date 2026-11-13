@@ -10,7 +10,7 @@ license = "MIT"
 name = "hil_common"
 
 [dependencies]
-bmm350 = { path = "..", features = ["defmt"] }
+bmm350 = { package = "bmm350-async", path = "..", features = ["defmt"] }
 
 embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
 embassy-time = { version = "0.5.1", features = ["defmt", "defmt-timestamp-uptime"] }

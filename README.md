@@ -2,11 +2,13 @@
 
 Driver for the Bosch BMM350 three-axis magnetometer over I2C, written for the MARV V2 Rev 1 flight controller (RP2354B). `no_std`, no `unsafe`. The crate root is the async driver, written against `embedded-hal-async` 1.0 (I2C and delay). The `blocking` module is the same code run to completion on `embedded-hal` 1.0 bus and delay types. The only other dependency is `defmt` 1.0, optional. The driver owns no interrupt pin, timer or task.
 
-Status: version 0.1.0. The API may still change. The driver has been run on one board with one sensor; see "Measured" and "Not covered".
+Status: version 0.1.0, prepared for crates.io. The API may still change. The driver has been run on one board with one sensor; see "Measured" and "Not covered".
 
 ## Works with
 
 The driver works with any HAL and any MCU whose I2C bus and delay implement `embedded-hal-async` 1.0 (async driver) or `embedded-hal` 1.0 (`blocking` module). No embassy crate is needed.
+
+On crates.io the package is named `bmm350-async` (the name `bmm350` belongs to another crate). Depend on it with `bmm350-async = "0.1.0"` in `Cargo.toml`; the library is still called `bmm350`, so the code says `use bmm350::...`.
 
 ## Quick start
 
