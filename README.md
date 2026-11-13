@@ -4,6 +4,10 @@ Driver for the Bosch BMM350 three-axis magnetometer over I2C, written for the MA
 
 Status: version 0.1.0. The API may still change. The driver has been run on one board with one sensor; see "Measured" and "Not covered".
 
+## Works with
+
+The driver works with any HAL and any MCU whose I2C bus and delay implement `embedded-hal-async` 1.0 (async driver) or `embedded-hal` 1.0 (`blocking` module). No embassy crate is needed.
+
 ## Quick start
 
 ```rust,no_run

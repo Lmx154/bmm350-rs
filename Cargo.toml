@@ -5,6 +5,11 @@ edition = "2024"
 publish = false
 license = "MIT"
 description = "Driver for the Bosch BMM350 magnetometer over I2C. Async and blocking, on embedded-hal traits only."
+repository = "https://github.com/Lmx154/bmm350-rs"
+readme = "README.md"
+keywords = ["embedded", "no-std", "driver", "magnetometer", "bmm350"]
+categories = ["embedded", "no-std", "hardware-support"]
+rust-version = "1.99"
 
 [features]
 defmt = ["dep:defmt"]
